@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPreview } from './preview.mjs';
 
-export async function createWorkStripPreview({ stepMs = 1000, inspection = false, actionGroups = false } = {}) {
+export async function createWorkStripPreview({ stepMs = 1000, inspection = false, actionGroups = false, standaloneCode = false } = {}) {
   const old = process.env.PI_PREVIEW_WORK_STRIP;
   process.env.PI_PREVIEW_WORK_STRIP = '1';
   const preview = await createPreview();
@@ -69,6 +69,20 @@ export async function createWorkStripPreview({ stepMs = 1000, inspection = false
     manager.appendMessage(assistant('Mixed-action preview: expand the work, then the 4-action and 2-action groups. Open codemode to inspect its recorded content. The nested-error card stays separate. Test /fold collapse, Ctrl+Alt+W, /inspect, and Esc. All content is invented; no tool or model ran.'));
     const finalId = manager.getBranch().at(-1).id;
     manager.appendCustomEntry('compact-renderer:work-settled:v1',{version:1,userId,finalId,endId:finalId,startedAt:base-45000,endedAt:base,outcome:'completed'});
+  }
+  if (standaloneCode) {
+    manager.appendMessage({ role: 'user', content: '独立代码输出滚动测试：保留原始结果，并检查更多内容。', timestamp: Date.now() });
+    const userId = manager.getBranch().at(-1).id;
+    manager.appendMessage(assistant('这条说明将独立代码与前一组工具分开。'));
+    const call = assistant('');
+    call.stopReason = 'toolUse';
+    call.content = [{ type: 'toolCall', id: 'standalone-wheel-code', name: 'codemode', arguments: { code: 'const results = await Promise.all([tools.read({ path: "/fixture/a" }), tools.read({ path: "/fixture/b" }), tools.read({ path: "/fixture/c" })]);\nfor (const result of results) text(result);' } }];
+    manager.appendMessage(call);
+    const escaped = JSON.stringify({ content: [{ type: 'text', text: Array.from({ length: 240 }, (_, i) => `记录 ${i + 1}：示例文字、原始说明与数据行。`).join('\n') }], end: 'ESCAPED_JSON_END' });
+    manager.appendMessage({ role: 'toolResult', toolCallId: 'standalone-wheel-code', toolName: 'codemode', content: [{ type: 'text', text: 'Script completed\nWall time 0.75 seconds\nOutput:\n' }, { type: 'text', text: escaped + '\nFINAL_OUTPUT_SENTINEL' }], details: { calls: ['a', 'b', 'c'].map(path => ({ name: 'read', args: JSON.stringify({ path: `/fixture/${path}` }), status: 'ok', durationMs: 10 })) }, isError: false, durationMs: 750, timestamp: Date.now() });
+    manager.appendMessage(assistant('检查完成。这条最终答复保持在工作区外。'));
+    const finalId = manager.getBranch().at(-1).id;
+    manager.appendCustomEntry('compact-renderer:work-settled:v1', { version: 1, userId, finalId, endId: finalId, startedAt: Date.now() - 2000, endedAt: Date.now(), outcome: 'completed' });
   }
   const emit = async event => {
     if (stopped) return;
