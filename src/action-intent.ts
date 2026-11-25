@@ -77,12 +77,16 @@ export function actionIntent(name: string, args: unknown): string {
   return combine(actionIntents(name, args));
 }
 
-export function groupIntent(actions: Action[]): string {
+export function groupIntent(actions: Action[], format: "full" | "brief" = "full"): string {
   if (!Array.isArray(actions)) return "Run tool actions";
   const intents: string[] = [];
   for (let i = 0; i < Math.min(actions.length, 64); i++) {
     const action = field(actions, String(i));
     intents.push(...actionIntents(field(action, "name"), field(action, "args")));
+  }
+  if (format === "brief") {
+    const specific = intents.filter(intent => intent !== "Run tool actions" && intent !== "Run code");
+    return combine([...new Set(specific.length ? specific : intents)].slice(0, 2));
   }
   return combine(intents, actions.length > 64);
 }
