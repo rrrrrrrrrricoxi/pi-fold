@@ -9,6 +9,7 @@ const { encodeKitty, registerKittyImageMetadata, isImageLine } = await import(
 );
 const deletion = '\x1b_Ga=d,d=a,q=2\x1b\\';
 const { createInteractiveTuiReference } = await loadAgent('modes/interactive/tui-renderer.js');
+const besideImage = { col: 30, width: 10 };
 let nextImageId = 742;
 
 function fixture() {
@@ -24,18 +25,17 @@ function fixture() {
   const lines = ['first row', 'second row', image, '', '', '', '', '', 'last row', '', '', ''];
   screen.addChild({ render: () => lines, invalidate() {} });
   const paint = () => { output.length = 0; screen.doRender(); return output.join(''); };
-  const open = () => screen.showOverlay({
-    render: () => Array.from({ length: 6 }, () => `│${' '.repeat(18)}│`), invalidate() {},
-  }, { width: 20, row: 2, col: 5 });
+  const open = ({ col = 5, width = 20 } = {}) => screen.showOverlay({
+    render: () => Array.from({ length: 6 }, () => `│${' '.repeat(width - 2)}│`), invalidate() {},
+  }, { width, row: 2, col });
   return { screen, lines, paint, open };
 }
 
-// Reproduce the native failure: the anchor row bypasses text compositing, and
-// the unchanged Kitty placement remains over subsequent overlay rows.
+// A neighboring overlay leaves the native image anchor in place. Fold clears
+// the anchor so the renderer can draw the overlay border on that row.
 const stock = fixture();
-stock.paint(); stock.open();
-assert.ok(!stock.paint().includes(deletion), 'stock does not remove the unchanged image placement');
-assert.ok(isImageLine(stock.screen.getScreenLines()[2]), 'stock retains the image anchor inside the overlay');
+stock.paint(); stock.open(besideImage); stock.paint();
+assert.ok(isImageLine(stock.screen.getScreenLines()[2]), 'stock retains the image anchor beside the overlay');
 assert.ok(!stock.screen.getScreenLines()[2].includes('│'), 'stock loses the anchor-row border');
 
 const guarded = fixture();
@@ -48,7 +48,7 @@ assert.equal(typeof cleanup, 'function', 'the supported native runtime installs 
 try {
   assert.ok(!guarded.paint().includes(deletion), 'no visible overlay leaves image placements intact');
   assert.deepEqual(guarded.screen.getScreenLines(), initialFrame, 'no overlay preserves the native frame');
-  const unrelated = fixture(); unrelated.open(); unrelated.paint();
+  const unrelated = fixture(); unrelated.open(besideImage); unrelated.paint();
   assert.ok(isImageLine(unrelated.screen.getScreenLines()[2]), 'another terminal keeps its native image behavior');
   const overlay = guarded.open();
   const opened = guarded.paint();
@@ -74,7 +74,7 @@ try {
 
   cleanup(); cleanup();
   assert.equal(guarded.screen.compositeOverlays, original, 'cleanup restores native compositing');
-  guarded.open(); guarded.paint();
+  guarded.open(besideImage); guarded.paint();
   assert.ok(isImageLine(guarded.screen.getScreenLines()[2]), 'cleanup returns image handling to native behavior');
 } finally { cleanup(); }
 
@@ -85,9 +85,10 @@ proxied.paint();
 const proxyOriginal = proxied.screen.compositeOverlays;
 const proxyCleanup = installFullscreenOverlayGuard(createInteractiveTuiReference(() => proxied.screen));
 try {
-  proxied.open();
+  proxied.open(besideImage);
   assert.ok(proxied.paint().includes(deletion), 'the real native forwarding Proxy installs the guard on its renderer');
   assert.ok(!proxied.screen.getScreenLines().some(isImageLine));
+  assert.equal((proxied.screen.getScreenLines()[2].match(/│/g) || []).length, 2, 'the overlay beside the image retains both anchor-row borders');
 } finally { proxyCleanup(); }
 assert.equal(proxied.screen.compositeOverlays, proxyOriginal, 'Proxy cleanup restores the actual renderer method');
 proxied.paint();
@@ -98,7 +99,7 @@ for (const protocol of [null, 'iterm2']) {
   fallback.screen.imageProtocol = protocol;
   const dispose = installFullscreenOverlayGuard(fallback.screen);
   try {
-    fallback.open(); fallback.paint();
+    fallback.open(besideImage); fallback.paint();
     assert.ok(isImageLine(fallback.screen.getScreenLines()[2]), 'other protocols preserve native compositing');
   } finally { dispose?.(); }
 }
