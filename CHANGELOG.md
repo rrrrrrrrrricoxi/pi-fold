@@ -1,5 +1,10 @@
 # Release notes
 
+## 3.1.1 — Clearer action headings
+
+- Show a short description of a folded action group before the per-tool call counts.
+- Show the failure reason directly in a failed tool heading. Keep an uncertain outcome visible, including when a timeout leaves a commit unconfirmed.
+
 ## 3.1.0
 
 - Enable features by available Pi interfaces instead of an exact version list.

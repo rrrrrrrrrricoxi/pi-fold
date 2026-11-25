@@ -98,10 +98,10 @@ try {
   scripts[1].handleMouse({ type: 'click', button: 'left', x: 3, y: exactErrorRow, width: 100, height: scripts[1].render(100).length });
   assert.match(paint(scripts[1]), /ENAMETOOLONG: name too long, lstat/);
   const fourGroup = ui.chatContainer.children.find(item => item instanceof core.ToolExecutionComponent && item.toolName === 'read' && item.args?.path === '/fixture/source.js');
-  assert.match(paint(fourGroup), /4 actions · Read files and edit files; and other actions/);
+  assert.match(paint(fourGroup), /4 actions · Read files and edit files · read ×2 · edit ×1 · bash ×1/);
   assert.doesNotMatch(paint(fourGroup), /successful|Completed|✓/);
   const densityGroup = ui.chatContainer.children.find(item => item instanceof core.ToolExecutionComponent && item.toolName === 'write' && item.args?.path === '/fixture/sample-a.txt');
-  assert.match(paint(densityGroup), /4 actions · Edit files and read files/);
+  assert.match(paint(densityGroup), /4 actions · Edit files and read files · write ×2 · read ×2/);
   densityGroup.setExpanded(true);
   assert.equal(densityGroup.render(100).length, 6, 'four tight sibling headings plus header and native spacer');
   const densityPane = densityGroup.resultRendererComponent.owner.group.pane;

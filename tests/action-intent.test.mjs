@@ -33,6 +33,8 @@ assert.equal(actionIntent('unknown\u001b[31m\u202e', { label: 'Reveal SECRET', d
 assert.equal(actionIntent('bash', { command: 'gh pr merge 19' }), 'Run shell commands', 'do not call a write operation a check');
 assert.equal(actionIntent('bash', { command: 'git reset --hard' }), 'Run shell commands');
 assert.equal(actionIntent('bash', { command: 'find . -delete' }), 'Run shell commands');
+assert.equal(groupIntent([{ name: 'custom', args: {} }, bash('git status'), bash('npm test'), bash('rg term')], 'brief'),
+  'Check Git changes and run checks', 'keep a short recorded intent before the tool counts');
 assert.equal(groupIntent([]), 'Run tool actions');
 assert.equal(groupIntent(Array.from({ length: 65 }, () => ({ name: 'read', args: {} }))), 'Read files; and other actions');
 let reads = 0;

@@ -10,8 +10,8 @@ import { CodePane } from "./modern-code-pane.ts";
 import { cardContentWidth, activityRow, activityHeading } from "./display-card.ts";
 import { acquireSubagentProjection, hiddenSubagent } from "./modern-subagent-groups.ts";
 import { compactSubagent, subagentDecision, subagentTitle } from "./modern-subagents.ts";
-import { groupIntent } from "./action-intent.ts";
 import { compactToolImages, installModernToolImages, type ToolImageView } from "./modern-tool-images.ts";
+import { groupIntent } from "./action-intent.ts";
 
 const { Text, truncateToWidth } = Tui;
 const getLanguageFromPath = typeof Pi.getLanguageFromPath === "function" ? Pi.getLanguageFromPath : () => undefined;
@@ -203,13 +203,34 @@ function knownFailure(node: Node): { code: string; label: string } | undefined {
     return { code, label: categories[code] };
   }
 }
-function failureReason(node: Node): string {
-  if (node.status !== "failed") return "";
+// Count outer calls only. A codemode call owns its nested actions.
+function groupCounts(nodes: Node[]): string {
+  const counts = new Map<string, number>();
+  for (const { name } of nodes) {
+    const label = clean(shortName(name)) || "tool";
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  const entries = [...counts].slice(0, 4);
+  const labels = entries.map(([name, count]) => `${name} ×${count}`);
+  const more = counts.size - entries.length;
+  if (more) labels.push(`+${more} tool type${more === 1 ? "" : "s"}`);
+  return labels.join(" · ");
+}
+
+function failureLabel(node: Node): string {
   const known = knownFailure(node);
-  if (known) return known.label;
   const details = node.result?.details;
-  if (typeof details?.exitCode === "number") return `Command failed (exit ${details.exitCode})`;
-  return ["bash", "powershell"].includes(shortName(node.name)) ? "Command failed" : "Tool failed";
+  // Only compact structured identifiers belong in a heading. Keep free text in Details.
+  const identifier = [details?.failureReason, details?.code].find(value =>
+    typeof value === "string" && value.length <= 64 && /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/i.test(value));
+  const reason = known?.label ?? identifier?.replaceAll("_", " ").toLowerCase();
+  const parts = reason ? [reason] : [];
+  if (details?.status === "unknown") parts.push(details.code === "commit_receipt_missing" ? "commit unconfirmed" : "outcome unknown");
+  if (parts.length) {
+    const label = parts.join(" · ");
+    return label[0].toUpperCase() + label.slice(1);
+  }
+  return typeof details?.exitCode === "number" ? `Exit code ${details.exitCode}` : "Failed";
 }
 function questionState(node: Node): string {
   const statuses: Record<string, string> = { pending: "Pending", running: "Pending", failed: "Failed", answered: "Answered", cancelled: "Cancelled", unavailable: "Unavailable", unanswered: "Unanswered" };
@@ -278,12 +299,17 @@ export function registerModernTools(pi: ExtensionAPI, mode: DisplayMode, options
       const signature = run.map(node => `${node.id}@${node.revision}`).join("|");
       let group = groups.get(id);
       if (!group) group = { members: [], signature: "", pane: new ToolPane([], "", height) };
-      if (group.signature !== signature) { group.pane.actions = run.map(action); group.pane.selected = Math.min(group.pane.selected, run.length - 1); group.pane.reset(); group.signature = signature; }
+      if (group.signature !== signature) {
+        group.pane.actions = run.map(action);
+        group.pane.selected = Math.min(group.pane.selected, run.length - 1);
+        group.pane.reset();
+        group.signature = signature;
+        group.pane.title = run.length === 1 ? toolLabel(run[0].name, run[0].args) : `${run.length} actions · ${groupIntent(run, "brief")} · ${groupCounts(run)}`;
+        if (run.some(node => node.result?.details?.truncation?.truncated || node.result?.details?.truncated)) group.pane.title += " · output truncated";
+        if (run.some(node => node.result?.details?.fullOutputPath)) group.pane.title += " · full output saved";
+        if (run.some(node => node.result?.details?.warning || node.result?.details?.warnings?.length)) group.pane.title += " · warning recorded";
+      }
       group.members = run;
-      group.pane.title = run.length === 1 ? toolLabel(run[0].name, run[0].args) : `${run.length} actions · ${groupIntent(run)}`;
-      if (run.some(node => node.result?.details?.truncation?.truncated || node.result?.details?.truncated)) group.pane.title += " · output truncated";
-      if (run.some(node => node.result?.details?.fullOutputPath)) group.pane.title += " · full output saved";
-      if (run.some(node => node.result?.details?.warning || node.result?.details?.warnings?.length)) group.pane.title += " · warning recorded";
       for (const [index, node] of run.entries()) {
         node.group = group;
         if (node.code?.open) {
@@ -447,10 +473,15 @@ export function registerModernTools(pi: ExtensionAPI, mode: DisplayMode, options
       }
       node.pane ||= new ToolPane([action(node)], "", height);
       node.pane.expandedTitle = question(name) ? `Question · ${questionState(node)}` : undefined;
-      const status = node.note || node.status[0].toUpperCase() + node.status.slice(1);
-      node.pane.title = compactSubagent(name) ? subagentTitle(name, node.args, node.result, node.status) + indicators(node) : question(name) ? questionTitle(node) : `${toolLabel(name, node.args)}${node.images ? ` · ${node.images} image${node.images === 1 ? "" : "s"}` : ""}${node.status === "success" ? "" : ` · ${node.status === "failed" ? "✗ Failed" : `… ${status}`}`}${indicators(node)}`;
-      const reason = compactSubagent(name) ? "" : failureReason(node);
-      if (reason) node.pane.title += ` · ${reason}`;
+      if (compactSubagent(name)) node.pane.title = subagentTitle(name, node.args, node.result, node.status) + indicators(node);
+      else if (question(name)) node.pane.title = questionTitle(node);
+      else {
+        const parts = [toolLabel(name, node.args)];
+        if (node.images) parts.push(`${node.images} image${node.images === 1 ? "" : "s"}`);
+        if (node.status === "failed") parts.push(`✗ ${failureLabel(node)}`);
+        else if (node.status !== "success") parts.push(`… ${node.note || node.status[0].toUpperCase() + node.status.slice(1)}`);
+        node.pane.title = parts.join(" · ") + indicators(node);
+      }
       if (theme) {
         node.pane.theme = theme;
         node.pane.styleHeader = text => activityHeading(text, theme, node.status === "failed" ? "error" : question(name) || subagentDecision(name, node.args) ? "accent" : compactSubagent(name) && node.status === "notice" ? "warning" : "mdLink");
