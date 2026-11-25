@@ -59,7 +59,7 @@ const create = item => {
 const display = {
   sessionManager: recorded, session: {}, ui, renderer: undefined,
   chatContainer: new tui.Container(), pendingTools: new Map(), outputPad: 0, toolOutputExpanded: false,
-  settingsManager: { getShowCacheMissNotices: () => false, getShowImages: () => true, getImageWidthCells: () => 60 },
+  settingsManager: core.SettingsManager.inMemory(),
   addMessageToChat() {},
   getRegisteredToolDefinition(name) { return resolver(name, () => original(name)); },
   renderSessionEntries: core.InteractiveMode.prototype.renderSessionEntries,
